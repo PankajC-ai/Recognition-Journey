@@ -377,15 +377,15 @@
 
   <script>
     const slides = [
-      { file: "1 Cover.png",                        label: "Cover" },
-      { file: "2 Your Impact.png",                  label: "Your Impact" },
-      { file: "3 Your Recognition Milestones.png",  label: "Milestones" },
-      { file: "Recognitions from People.png",       label: "Recognitions" },
-      { file: "4 Values You Represent.png",         label: "Values" },
-      { file: "5 Badge Cabinet.png",                label: "Badge Cabinet" },
-      { file: "6 Award Cabinet.png",                label: "Award Cabinet" },
-      { file: "7 How You Built Culture.png",        label: "Culture" },
-      { file: "8 End Page.png",                     label: "End Page" }
+      { file: "1 Cover.png?v=2",                        label: "Cover" },
+      { file: "2 Your Impact.png?v=1",                  label: "Your Impact" },
+      { file: "3 Your Recognition Milestones.png?v=2",  label: "Milestones" },
+      { file: "Recognitions from People.png?v=1",       label: "Recognitions" },
+      { file: "4 Values You Represent.png?v=2",         label: "Values" },
+      { file: "5 Badge Cabinet.png?v=1",                label: "Badge Cabinet" },
+      { file: "6 Award Cabinet.png?v=1",                label: "Award Cabinet" },
+      { file: "7 How You Built Culture.png?v=1",        label: "Culture" },
+      { file: "8 End Page.png?v=1",                     label: "End Page" }
     ];
 
     let current = 0;
@@ -513,7 +513,7 @@
         const url   = URL.createObjectURL(blob);
         const a     = document.createElement('a');
         a.href      = url;
-        a.download  = 'Recognition_Journey_' + label.replace(/\s+/g, '_') + '.png';
+        a.download  = 'Recognition_Journey_' + label.replace(/\s+/g, '_') + '.png';  // ?v=x stripped — fetch uses it, filename doesn't
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
