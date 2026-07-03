@@ -532,6 +532,45 @@
       text-align: center;
       line-height: 1.5;
     }
+
+    /* ── Mobile: single-page view ── */
+    @media (max-width: 600px) {
+      /* Hide left page and spine — current slide fills the screen */
+      #page-left, #book-spine { display: none; }
+
+      /* Expand right page to (nearly) full width, capped by available height */
+      .book-page {
+        width: min(92vw, calc((100vh - 80px) * 9 / 16));
+        max-width: min(92vw, calc((100vh - 80px) * 9 / 16));
+      }
+
+      /* No offset needed — right page is already centred when left page is hidden */
+      #book-spread.cover-only { transform: none; }
+
+      /* Treat the right page as a standalone card */
+      #book-spread { border-radius: 4px; }
+      #page-right  { border-radius: 4px; }
+
+      /* Remove the left-edge spine shadow (no spine adjacent on mobile) */
+      #page-right::after {
+        background: linear-gradient(to left, rgba(0,0,0,0.04) 0%, transparent 14%);
+      }
+
+      /* Shrink progress segments to fit 11 on a narrow screen */
+      .seg { width: 20px; }
+      #progress-bar { gap: 4px; }
+
+      /* Tighten vertical rhythm */
+      #slide-counter { margin-top: 6px; }
+      #download-cta  { margin-top: 10px; }
+
+      /* Bigger tap target for the save button */
+      #btn-save { padding: 12px 28px; font-size: 15px; }
+
+      /* Nav arrows: stay at screen edges but no closer than needed */
+      #btn-prev { left: 6px; }
+      #btn-next  { right: 6px; }
+    }
   </style>
 </head>
 <body>
