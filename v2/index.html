@@ -646,7 +646,7 @@
             <polygon points="23 7 16 12 23 17 23 7"/>
             <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
           </svg>
-          Download Video
+          Download as MP4
         </button>
         <button id="btn-panel-close">Back to Journey</button>
       </div>
@@ -1110,8 +1110,8 @@
     let flipRafId = null;
 
     async function startVideoGeneration() {
-      if (!window.MediaRecorder) {
-        alert('Video generation is not supported in this browser. Please use Chrome or Edge.');
+      if (typeof VideoEncoder === 'undefined') {
+        alert('MP4 export requires Chrome 94+ or Edge 94+. Please update your browser.');
         return;
       }
 
@@ -1123,13 +1123,24 @@
       vp.classList.add('active');
       vpBar.style.width    = '0%';
       vpPct.textContent    = '0%';
-      vpStatus.textContent = 'Loading slides…';
+      vpStatus.textContent = 'Loading encoder…';
+
+      // ── Load mp4-muxer on demand ──
+      let Muxer, ArrayBufferTarget;
+      try {
+        const mod     = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs');
+        Muxer             = mod.Muxer;
+        ArrayBufferTarget = mod.ArrayBufferTarget;
+      } catch (e) {
+        vp.classList.remove('active');
+        alert('Could not load video encoder. Check your internet connection.');
+        return;
+      }
 
       // ── Canvas & timing ──
       const CANVAS_W      = 1920;
       const CANVAS_H      = 1080;
       const FPS           = 30;
-      const FRAME_MS      = 1000 / FPS;
       const SLIDE_HOLD_MS = 2500;
       const TURN_MS       = 900;
 
@@ -1144,6 +1155,7 @@
       const SPINE_X  = SPREAD_X + PAGE_W;
       const RIGHT_X  = SPREAD_X + PAGE_W + SPINE_W;
 
+      vpStatus.textContent = 'Loading slides…';
       const images = await Promise.all(slides.map(s => new Promise((res, rej) => {
         const img = new Image();
         img.onload  = () => res(img);
@@ -1151,39 +1163,58 @@
         img.src = s.file;
       })));
 
-      const canvas = document.createElement('canvas');
-      canvas.width  = CANVAS_W;
-      canvas.height = CANVAS_H;
-      const ctx = canvas.getContext('2d');
-
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-        ? 'video/webm;codecs=vp9'
-        : 'video/webm';
-
-      const stream   = canvas.captureStream(FPS);
-      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 20000000 });
-      const chunks   = [];
-
-      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-
-      const donePromise = new Promise(resolve => {
-        recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+      // ── mp4-muxer ──
+      const target = new ArrayBufferTarget();
+      const muxer  = new Muxer({
+        target,
+        video:     { codec: 'avc', width: CANVAS_W, height: CANVAS_H },
+        fastStart: 'in-memory'
       });
 
-      recorder.start();
+      // ── VideoEncoder (H.264 hardware-accelerated) ──
+      const encoder = new VideoEncoder({
+        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+        error:  (e) => console.error('VideoEncoder error:', e)
+      });
+      encoder.configure({
+        codec:                'avc1.4d0028',
+        width:                CANVAS_W,
+        height:               CANVAS_H,
+        bitrate:              8_000_000,
+        framerate:            FPS,
+        avc:                  { format: 'avc' },
+        latencyMode:          'quality',
+        hardwareAcceleration: 'prefer-hardware'
+      });
 
-      const frame = () => new Promise(r => setTimeout(r, FRAME_MS));
+      // ── Off-screen canvas ──
+      const canvas = new OffscreenCanvas(CANVAS_W, CANVAS_H);
+      const ctx    = canvas.getContext('2d');
 
-      const holdFrames  = Math.round(SLIDE_HOLD_MS / FRAME_MS);
-      const turnFrames  = Math.round(TURN_MS / FRAME_MS);
+      // ── Frame helpers ──
+      const holdFrames  = Math.round(SLIDE_HOLD_MS * FPS / 1000);
+      const turnFrames  = Math.round(TURN_MS       * FPS / 1000);
       const totalFrames = images.length * holdFrames + (images.length - 1) * turnFrames;
       let   framesDrawn = 0;
+      let   frameTimestamp = 0;
+      const FRAME_US = Math.round(1_000_000 / FPS);
+
+      async function encodeFrame(keyFrame) {
+        const vf = new VideoFrame(canvas, { timestamp: frameTimestamp, duration: FRAME_US });
+        encoder.encode(vf, { keyFrame });
+        vf.close();
+        frameTimestamp += FRAME_US;
+        framesDrawn++;
+        // Backpressure: yield if encoder queue is building up
+        if (encoder.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 16));
+        else if (framesDrawn % 10 === 0) await new Promise(r => setTimeout(r, 0));
+      }
 
       function updateProgress(slideIdx) {
-        const pct = Math.min(99, Math.round((framesDrawn / totalFrames) * 100));
+        const pct = Math.min(99, Math.round(framesDrawn / totalFrames * 100));
         vpBar.style.width    = pct + '%';
         vpPct.textContent    = pct + '%';
-        vpStatus.textContent = 'Slide ' + (slideIdx + 1) + ' of ' + images.length + ' — ' + slides[slideIdx].label;
+        vpStatus.textContent = 'Rendering slide ' + (slideIdx + 1) + ' of ' + images.length;
       }
 
       // ── Book rendering helpers ──
@@ -1280,7 +1311,7 @@
         ctx.restore();
       }
 
-      // ── Record ──
+      // ── Render + encode ──
 
       for (let i = 0; i < images.length; i++) {
         const img     = images[i];
@@ -1288,35 +1319,34 @@
         const nextImg = images[i + 1] || null;
         const isFirst = i === 0;
 
-        // Hold
+        // Hold frames — key frame at each slide boundary
         for (let f = 0; f < holdFrames; f++) {
           vDrawStaticSpread(img, prevImg, isFirst);
-          framesDrawn++;
+          await encodeFrame(f === 0);
           updateProgress(i);
-          await frame();
         }
 
-        // Page-turn transition
+        // Page-turn transition frames
         if (nextImg) {
           for (let f = 0; f < turnFrames; f++) {
             vDrawTurnSpread(img, nextImg, f / (turnFrames - 1), prevImg, isFirst);
-            framesDrawn++;
+            await encodeFrame(false);
             updateProgress(i);
-            await frame();
           }
         }
       }
 
-      recorder.stop();
+      // ── Finalise MP4 ──
+      vpStatus.textContent = 'Finalising MP4…';
+      await encoder.flush();
+      muxer.finalize();
 
-      vpStatus.textContent = 'Finalising…';
-      vpBar.style.width    = '99%';
-
-      const blob = await donePromise;
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = 'Recognition_Journey.webm';
+      const buffer = target.buffer;
+      const blob   = new Blob([buffer], { type: 'video/mp4' });
+      const url    = URL.createObjectURL(blob);
+      const a      = document.createElement('a');
+      a.href       = url;
+      a.download   = 'Recognition_Journey.mp4';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1324,7 +1354,7 @@
 
       vpBar.style.width    = '100%';
       vpPct.textContent    = '100%';
-      vpStatus.textContent = '✓ Video downloaded!';
+      vpStatus.textContent = '✓ MP4 downloaded!';
       setTimeout(() => vp.classList.remove('active'), 2000);
     }
   </script>
