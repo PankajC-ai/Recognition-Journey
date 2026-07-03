@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Recognition Journey — Version 2</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0d0d1a;
+      font-family: Inter, sans-serif;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ── Landing ── */
+    #landing {
+      position: relative;
+      display: inline-block;
+      line-height: 0;
+    }
+
+    #landing-img {
+      max-width: 100vw;
+      max-height: 100vh;
+      display: block;
+      user-select: none;
+    }
+
+    #open-journey-overlay {
+      position: absolute;
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      z-index: 10;
+      left: 30%;
+      top: 40%;
+      width: 47%;
+      height: 28%;
+    }
+
+    /* ── Story Viewer — Open Book ── */
+    #story-viewer {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 62%, #2e1506 0%, #0a0402 100%);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+    }
+    #story-viewer.active { display: flex; }
+
+    /* Progress segments */
+    #progress-bar {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 14px;
+    }
+    .seg {
+      height: 3px;
+      width: 30px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.2);
+      cursor: pointer;
+      transition: background 0.25s;
+    }
+    .seg.done   { background: rgba(255,255,255,0.55); }
+    .seg.active { background: #fff; }
+
+    /* ── Open book spread ── */
+    #book-spread {
+      display: flex;
+      align-items: flex-start;
+      position: relative;
+      border-radius: 2px 4px 6px 2px;
+      box-shadow:
+        0 30px 70px rgba(0,0,0,0.9),
+        0 8px 24px  rgba(0,0,0,0.7),
+        0 0 0 1px   rgba(255,255,255,0.04);
+    }
+
+    /* Both pages — 9:16, side-by-side */
+    .book-page {
+      flex: 0 0 auto;
+      width: 41vw;
+      max-width: calc(72vh * 9 / 16);
+      aspect-ratio: 9 / 16;
+      overflow: hidden;
+      background: #f5f2ec;
+      position: relative;
+    }
+
+    #page-left  { border-radius: 2px 0 0 2px; }
+    #page-right { border-radius: 0 4px 6px 0; }
+
+    /* ── Cover-only mode (first slide) ──
+       Layout stays stable (no width/flex changes) so #page-right never shifts
+       during a canvas flip animation. The spread is nudged left via transform so
+       the right page appears visually centred; left page & spine fade out. */
+    #book-spread {
+      transition: transform 0.5s ease;
+    }
+    #book-spread.cover-only {
+      /* shift whole spread left by (left-page-width + spine-width) / 2
+         so the right page sits at the viewport centre */
+      transform: translateX(calc(
+        (min(41vw, calc(72vh * 9 / 16)) + clamp(13px, 1.3vw, 20px)) / -2
+      ));
+    }
+    #page-left {
+      transition: opacity 0.5s ease;
+    }
+    #book-spread.cover-only #page-left {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #book-spread.cover-only #book-spine {
+      opacity: 0;
+    }
+
+    /* Spine-side shadow overlays — subtle, not enough to look like cropping */
+    #page-left::after, #page-right::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+    #page-left::after {
+      background:
+        linear-gradient(to left,  rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.04) 22%, transparent 42%),
+        linear-gradient(to right, rgba(0,0,0,0.06) 0%, transparent 14%);
+    }
+    #page-right::after {
+      background:
+        linear-gradient(to right, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.04) 22%, transparent 42%),
+        linear-gradient(to left,  rgba(0,0,0,0.04) 0%, transparent 14%);
+    }
+
+    /* Images inside pages — contain so nothing is ever cropped */
+    .page-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      display: block;
+      user-select: none;
+      pointer-events: none;
+    }
+    #img-left {
+      opacity: 0.45;
+      filter: brightness(0.80) saturate(0.82);
+      object-position: left top;
+    }
+
+    /* Canvas page-turn overlay — covers the right page during animation */
+    #flip-canvas {
+      position: absolute;
+      inset: 0;
+      display: none;
+      width: 100%;
+      height: 100%;
+      z-index: 6;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    /* Leather spine */
+    #book-spine {
+      flex: 0 0 clamp(13px, 1.3vw, 20px);
+      align-self: stretch;
+      transition: opacity 0.5s ease;
+      background: linear-gradient(
+        to right,
+        #0e0400 0%, #3a1800 20%, #7c3c08 44%,
+        #a05214 50%,
+        #7c3c08 56%, #3a1800 80%, #0e0400 100%
+      );
+      position: relative;
+      box-shadow: -3px 0 8px rgba(0,0,0,0.5), 3px 0 8px rgba(0,0,0,0.5);
+    }
+    #book-spine::after {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0;
+      left: 50%; transform: translateX(-50%);
+      width: 2px;
+      background: linear-gradient(
+        to bottom,
+        transparent 0%, rgba(255,195,70,0.18) 15%,
+        rgba(255,195,70,0.32) 50%,
+        rgba(255,195,70,0.18) 85%, transparent 100%
+      );
+    }
+
+    /* Tap zones over the book spread */
+    .tap-zone {
+      position: absolute;
+      top: 0; height: 100%;
+      width: 50%;
+      cursor: pointer;
+      z-index: 5;
+    }
+    #tap-prev { left: 0; }
+    #tap-next  { right: 0; }
+
+    /* Page-flip animations — slow and deliberate (0.5 s each) */
+    @keyframes flipOut {
+      0%   { clip-path: inset(0 0%   0 0); opacity: 1;   }
+      100% { clip-path: inset(0 100% 0 0); opacity: 0.15; }
+    }
+    @keyframes flipIn {
+      0%   { clip-path: inset(0 100% 0 0); opacity: 0.15; }
+      100% { clip-path: inset(0 0%   0 0); opacity: 1;   }
+    }
+    @keyframes flipOutBack {
+      0%   { clip-path: inset(0 0 0 0%  ); opacity: 1;   }
+      100% { clip-path: inset(0 0 0 100%); opacity: 0.15; }
+    }
+    @keyframes flipInBack {
+      0%   { clip-path: inset(0 0 0 100%); opacity: 0.15; }
+      100% { clip-path: inset(0 0 0 0%  ); opacity: 1;   }
+    }
+    .flip-out      { animation: flipOut     0.5s ease-in  forwards; }
+    .flip-in       { animation: flipIn      0.5s ease-out forwards; }
+    .flip-out-back { animation: flipOutBack 0.5s ease-in  forwards; }
+    .flip-in-back  { animation: flipInBack  0.5s ease-out forwards; }
+
+    /* Counter */
+    #slide-counter {
+      margin-top: 10px;
+      color: rgba(255,255,255,0.38);
+      font-size: 12px;
+      letter-spacing: 0.4px;
+    }
+
+    /* ── Download CTA — last slide only ── */
+    #download-cta {
+      display: none;
+      margin-top: 16px;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    #download-cta.visible { display: flex; }
+
+    #btn-save {
+      background: #5B3DF5;
+      color: #fff;
+      border: none;
+      border-radius: 24px;
+      padding: 10px 26px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s, transform 0.15s;
+      letter-spacing: 0.3px;
+    }
+    #btn-save:hover { background: #4a2fe0; transform: translateY(-1px); }
+
+    #cta-hint {
+      color: rgba(255,255,255,0.3);
+      font-size: 11px;
+    }
+
+    /* Arrow buttons */
+    .nav-btn {
+      position: fixed;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.1);
+      border: none;
+      border-radius: 50%;
+      width: 42px; height: 42px;
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s;
+      z-index: 200;
+    }
+    .nav-btn:hover { background: rgba(255,255,255,0.26); }
+    .nav-btn:disabled { opacity: 0.2; cursor: default; }
+
+    #btn-prev { left: 14px; }
+    #btn-next  { right: 14px; }
+
+    /* Close */
+    #btn-close {
+      position: fixed;
+      top: 14px; right: 18px;
+      background: rgba(255,255,255,0.1);
+      border: none; border-radius: 50%;
+      width: 36px; height: 36px;
+      color: #fff; font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s;
+      z-index: 200;
+    }
+    #btn-close:hover { background: rgba(255,255,255,0.26); }
+
+    /* ── Download Panel ── */
+    #download-panel {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.96);
+      z-index: 300;
+      overflow-y: auto;
+    }
+    #download-panel.active { display: block; }
+
+    #panel-inner {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 36px 24px 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #panel-header {
+      text-align: center;
+      margin-bottom: 28px;
+      width: 100%;
+    }
+    #panel-header h2 {
+      color: #fff;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    #panel-header p {
+      color: rgba(255,255,255,0.45);
+      font-size: 13px;
+    }
+
+    #slides-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      width: 100%;
+      margin-bottom: 32px;
+    }
+
+    .slide-card {
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.2s;
+    }
+    .slide-card:hover { background: rgba(255,255,255,0.09); }
+
+    .slide-thumb {
+      width: 100%;
+      aspect-ratio: 9/16;
+      object-fit: contain;
+      background: #111;
+      display: block;
+    }
+
+    .slide-card-footer {
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .slide-label {
+      color: rgba(255,255,255,0.6);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .btn-dl-single {
+      background: rgba(91, 61, 245, 0.8);
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 11px;
+      padding: 4px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .btn-dl-single:hover { background: #5B3DF5; }
+    .btn-dl-single.downloading { opacity: 0.6; cursor: default; }
+
+    #panel-actions {
+      display: flex;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    #btn-download-all {
+      background: #5B3DF5;
+      color: #fff;
+      border: none;
+      border-radius: 24px;
+      padding: 11px 30px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+    #btn-download-all:hover { background: #4a2fe0; }
+    #btn-download-all:disabled { opacity: 0.5; cursor: default; }
+
+    #btn-panel-close {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      border: none;
+      border-radius: 24px;
+      padding: 11px 24px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #btn-panel-close:hover { background: rgba(255,255,255,0.16); }
+
+    /* ── Video button ── */
+    #btn-download-video {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      border: 1.5px solid rgba(255,255,255,0.2);
+      border-radius: 24px;
+      padding: 11px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    #btn-download-video:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.4); }
+    #btn-download-video:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── Video progress overlay ── */
+    #video-progress {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.97);
+      z-index: 400;
+      align-items: center;
+      justify-content: center;
+    }
+    #video-progress.active { display: flex; }
+
+    #vp-box {
+      background: #1a1a2e;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 40px 48px;
+      width: 420px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+
+    #vp-icon {
+      width: 56px; height: 56px;
+      background: rgba(91,61,245,0.15);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    #vp-title {
+      color: #fff;
+      font-size: 18px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    #vp-status {
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+      text-align: center;
+      min-height: 20px;
+    }
+
+    #vp-bar-wrap {
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #vp-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #5B3DF5, #8B6FF5);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    #vp-percent {
+      color: rgba(255,255,255,0.35);
+      font-size: 12px;
+    }
+
+    #vp-note {
+      color: rgba(255,255,255,0.25);
+      font-size: 11px;
+      text-align: center;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Landing — same Discovery Point image -->
+  <div id="landing">
+    <img id="landing-img" src="Discovery Point.png" alt="Discovery">
+    <button id="open-journey-overlay" aria-label="Open Journey"></button>
+  </div>
+
+  <!-- Story Viewer — Open Book -->
+  <div id="story-viewer">
+    <div id="progress-bar"></div>
+
+    <div id="book-spread">
+      <!-- Left page: previous slide (dimmed) -->
+      <div class="book-page" id="page-left">
+        <img class="page-img" id="img-left" src="" alt="">
+      </div>
+
+      <!-- Leather spine -->
+      <div id="book-spine"></div>
+
+      <!-- Right page: current slide -->
+      <div class="book-page" id="page-right">
+        <img class="page-img" id="img-right" src="" alt="">
+        <canvas id="flip-canvas"></canvas>
+      </div>
+
+      <!-- Tap to navigate -->
+      <div class="tap-zone" id="tap-prev"></div>
+      <div class="tap-zone" id="tap-next"></div>
+    </div>
+
+    <div id="slide-counter"></div>
+
+    <div id="download-cta">
+      <button id="btn-save">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Save for Social Sharing
+      </button>
+      <span id="cta-hint">Download your recognition slides as PNG</span>
+    </div>
+
+    <button class="nav-btn" id="btn-prev">&#8592;</button>
+    <button class="nav-btn" id="btn-next">&#8594;</button>
+    <button id="btn-close">&#10005;</button>
+  </div>
+
+  <!-- Download Panel -->
+  <div id="download-panel">
+    <div id="panel-inner">
+      <div id="panel-header">
+        <h2>Save for Social Sharing</h2>
+        <p>Download individual slides or all at once</p>
+      </div>
+      <div id="slides-grid"></div>
+      <div id="panel-actions">
+        <button id="btn-download-all">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download All
+        </button>
+        <button id="btn-download-video">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7"/>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+          </svg>
+          Download Video
+        </button>
+        <button id="btn-panel-close">Back to Journey</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video generation progress overlay -->
+  <div id="video-progress">
+    <div id="vp-box">
+      <div id="vp-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#5B3DF5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="23 7 16 12 23 17 23 7"/>
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+      </div>
+      <div id="vp-title">Generating Your Video</div>
+      <div id="vp-status">Starting…</div>
+      <div id="vp-bar-wrap"><div id="vp-bar"></div></div>
+      <div id="vp-percent">0%</div>
+      <div id="vp-note">Keep this tab open while the video is being created.<br>This may take about 25 seconds.</div>
+    </div>
+  </div>
+
+  <script>
+    const slides = [
+      { file: "1 Cover.png",                   label: "Cover" },
+      { file: "2 Your Impact.png",             label: "Your Impact" },
+      { file: "3 Recognition Circle.png",      label: "Recognition Circle" },
+      { file: "4 Recognition Reach.png",       label: "Recognition Reach" },
+      { file: "5 Value Represented.png",       label: "Signature Value" },
+      { file: "6 Words People Use.png",        label: "Words People Use" },
+      { file: "7 Badges earned.png",           label: "Badge Cabinet" },
+      { file: "8 Awards Received.png",         label: "Award Cabinet" },
+      { file: "9 Service Milestone Page.png",  label: "Career Milestone" },
+      { file: "10 How You Built Culture.png",  label: "How You Built Culture" },
+      { file: "11 End Page.png",               label: "End Page" }
+    ];
+
+    let current = 0;
+
+    // ── Landing ──
+    const overlay = document.getElementById('open-journey-overlay');
+    overlay.addEventListener('click', openJourney);
+
+    function openJourney() {
+      current = 0;
+      buildProgress();
+      showSlide(0, 'none');
+      document.getElementById('story-viewer').classList.add('active');
+    }
+
+    function closeJourney() {
+      document.getElementById('story-viewer').classList.remove('active');
+    }
+
+    document.getElementById('btn-close').addEventListener('click', closeJourney);
+
+    // ── Slide logic — open book ──
+    // direction: 'forward' | 'backward' | 'none'
+    function showSlide(i, direction = 'forward') {
+      const prevIdx = current;
+      current = i;
+
+      const imgRight = document.getElementById('img-right');
+      const imgLeft  = document.getElementById('img-left');
+
+      function setLeft(idx) {
+        if (idx >= 0) {
+          imgLeft.src = slides[idx].file;
+          imgLeft.style.opacity = '';
+        } else {
+          imgLeft.src = '';
+          imgLeft.style.opacity = '0';
+        }
+      }
+
+      const spreadEl = document.getElementById('book-spread');
+
+      if (direction === 'none') {
+        // Instant jump — apply cover-only immediately
+        spreadEl.classList.toggle('cover-only', i === 0);
+        imgRight.src = slides[i].file;
+        setLeft(i - 1);
+      } else {
+        const canvas = document.getElementById('flip-canvas');
+        const ctx    = canvas.getContext('2d');
+        const page   = document.getElementById('page-right');
+        const W   = page.clientWidth;
+        const H   = page.clientHeight;
+        const dpr = window.devicePixelRatio || 1;
+
+        // Size canvas buffer at physical pixels for crisp rendering on Retina
+        canvas.width  = W * dpr;
+        canvas.height = H * dpr;
+        canvas.style.display = 'block';
+        ctx.scale(dpr, dpr); // draw in CSS-pixel coordinates
+
+        // Update underlying content now — canvas hides it during animation
+        imgRight.src = slides[i].file;
+        setLeft(i - 1);
+
+        const fromImg = slideImgs[prevIdx];
+        const toImg   = slideImgs[i];
+
+        const DURATION = 700;
+        let startTime = null;
+        if (flipRafId) cancelAnimationFrame(flipRafId);
+
+        function frame(ts) {
+          if (!startTime) startTime = ts;
+          const t = Math.min((ts - startTime) / DURATION, 1);
+          ctx.clearRect(0, 0, W, H);
+          if (direction === 'forward') {
+            renderPageTurn(ctx, fromImg, toImg, t, W, H);
+          } else {
+            renderPageTurnBack(ctx, toImg, fromImg, t, W, H);
+          }
+          if (t < 1) {
+            flipRafId = requestAnimationFrame(frame);
+          } else {
+            canvas.style.display = 'none';
+            flipRafId = null;
+            // Apply cover-only AFTER flip so the layout never shifts mid-animation
+            spreadEl.classList.toggle('cover-only', i === 0);
+          }
+        }
+
+        flipRafId = requestAnimationFrame(frame);
+      }
+
+      document.getElementById('slide-counter').textContent = (i + 1) + ' / ' + slides.length;
+      document.getElementById('btn-prev').disabled = i === 0;
+      document.getElementById('btn-next').disabled = i === slides.length - 1;
+      updateProgress();
+      const cta = document.getElementById('download-cta');
+      i === slides.length - 1 ? cta.classList.add('visible') : cta.classList.remove('visible');
+    }
+
+    document.getElementById('btn-prev').addEventListener('click', () => { if (current > 0)              showSlide(current - 1, 'backward'); });
+    document.getElementById('btn-next').addEventListener('click', () => { if (current < slides.length-1) showSlide(current + 1, 'forward');  });
+    document.getElementById('tap-prev').addEventListener('click', () => { if (current > 0)              showSlide(current - 1, 'backward'); });
+    document.getElementById('tap-next').addEventListener('click', () => { if (current < slides.length-1) showSlide(current + 1, 'forward');  });
+
+    document.addEventListener('keydown', e => {
+      const viewerActive = document.getElementById('story-viewer').classList.contains('active');
+      const panelActive  = document.getElementById('download-panel').classList.contains('active');
+      if (panelActive && e.key === 'Escape') { closePanel(); return; }
+      if (!viewerActive) return;
+      if (e.key === 'ArrowRight' && current < slides.length - 1) showSlide(current + 1, 'forward');
+      if (e.key === 'ArrowLeft'  && current > 0)                 showSlide(current - 1, 'backward');
+      if (e.key === 'Escape') closeJourney();
+    });
+
+    // ── Progress bar ──
+    function buildProgress() {
+      const bar = document.getElementById('progress-bar');
+      bar.innerHTML = '';
+      slides.forEach((_, i) => {
+        const s = document.createElement('div');
+        s.className = 'seg';
+        s.id = 'seg-' + i;
+        s.addEventListener('click', () => showSlide(i, 'none'));
+        bar.appendChild(s);
+      });
+    }
+
+    function updateProgress() {
+      slides.forEach((_, i) => {
+        const s = document.getElementById('seg-' + i);
+        if (s) s.className = 'seg' + (i < current ? ' done' : i === current ? ' active' : '');
+      });
+    }
+
+    // ── Download Panel ──
+    document.getElementById('btn-save').addEventListener('click', openPanel);
+    document.getElementById('btn-panel-close').addEventListener('click', closePanel);
+
+    function openPanel() {
+      buildGrid();
+      document.getElementById('download-panel').classList.add('active');
+    }
+
+    function closePanel() {
+      document.getElementById('download-panel').classList.remove('active');
+    }
+
+    function buildGrid() {
+      const grid = document.getElementById('slides-grid');
+      grid.innerHTML = '';
+      slides.forEach((slide) => {
+        const card = document.createElement('div');
+        card.className = 'slide-card';
+
+        const thumb = document.createElement('img');
+        thumb.className = 'slide-thumb';
+        thumb.src = slide.file;
+        thumb.alt = slide.label;
+
+        const footer = document.createElement('div');
+        footer.className = 'slide-card-footer';
+
+        const label = document.createElement('span');
+        label.className = 'slide-label';
+        label.textContent = slide.label;
+
+        const btn = document.createElement('button');
+        btn.className = 'btn-dl-single';
+        btn.textContent = '↓ Save';
+        btn.addEventListener('click', () => downloadSlide(slide.file, slide.label, btn));
+
+        footer.appendChild(label);
+        footer.appendChild(btn);
+        card.appendChild(thumb);
+        card.appendChild(footer);
+        grid.appendChild(card);
+      });
+    }
+
+    async function downloadSlide(file, label, btn) {
+      if (btn) { btn.textContent = '…'; btn.classList.add('downloading'); }
+      try {
+        const res  = await fetch(file);
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = 'Recognition_Journey_V2_' + label.replace(/\s+/g, '_') + '.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        if (btn) { btn.textContent = '✓ Saved'; }
+      } catch (err) {
+        if (btn) { btn.textContent = '↓ Save'; btn.classList.remove('downloading'); }
+      }
+    }
+
+    document.getElementById('btn-download-all').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-download-all');
+      btn.disabled = true;
+      btn.textContent = 'Downloading…';
+      for (let i = 0; i < slides.length; i++) {
+        const cardBtns = document.querySelectorAll('.btn-dl-single');
+        await downloadSlide(slides[i].file, slides[i].label, cardBtns[i] || null);
+        await new Promise(r => setTimeout(r, 400));
+      }
+      btn.textContent = '✓ All Saved!';
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download All';
+      }, 3000);
+    });
+
+    // ── Video Generation ──
+    document.getElementById('btn-download-video').addEventListener('click', startVideoGeneration);
+
+    // Ease-in-out cubic
+    function easeInOut(t) {
+      return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
+    }
+
+    // Draw one image fitted and centred on canvas
+    function drawFitted(ctx, img, W, H) {
+      const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight);
+      const iw = img.naturalWidth  * scale;
+      const ih = img.naturalHeight * scale;
+      ctx.drawImage(img, (W-iw)/2, (H-ih)/2, iw, ih);
+    }
+
+    // object-fit: cover — fills W×H, cropping overflow (matches CSS page display)
+    function drawCovered(ctx, img, W, H) {
+      const scale = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+      const iw = img.naturalWidth  * scale;
+      const ih = img.naturalHeight * scale;
+      ctx.drawImage(img, (W-iw)/2, 0, iw, ih);
+    }
+
+    // ── Page-turn effect ──
+    // t: 0 = page flat (showing frontImg), 1 = page fully turned (showing backImg)
+    // Two simultaneous motions:
+    //   • Old page folds away  — fold line sweeps right → left
+    //   • New page fades in    — opacity rises 0 → 1 so it "shows up gradually"
+    function renderPageTurn(ctx, frontImg, backImg, t, W, H) {
+      const BG       = '#f5f2ec';
+      const ease     = easeInOut(t);
+      const foldX    = W * (1 - ease);   // fold sweeps right → left
+      const CURL_W   = W * 0.08;
+      const SHADOW_W = W * 0.22;
+
+      // 1 ── Background fill
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, H);
+
+      // 2 ── New page materialises gradually beneath the turning page
+      //       alpha matches eased progress → invisible at start, fully opaque at end
+      ctx.globalAlpha = ease;
+      drawCovered(ctx, backImg, W, H);
+      ctx.globalAlpha = 1;
+
+      // 3 ── Shadow cast by the turning page onto the new page
+      if (foldX < W) {
+        const sg = ctx.createLinearGradient(foldX, 0, Math.min(foldX + SHADOW_W, W), 0);
+        sg.addColorStop(0,    'rgba(0,0,0,0.38)');
+        sg.addColorStop(0.55, 'rgba(0,0,0,0.10)');
+        sg.addColorStop(1,    'rgba(0,0,0,0)');
+        ctx.fillStyle = sg;
+        ctx.fillRect(foldX, 0, SHADOW_W, H);
+      }
+
+      // 4 ── Flat (unturned) portion of the old page, clipped to left of fold
+      if (foldX > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, foldX, H);
+        ctx.clip();
+        ctx.fillStyle = BG;
+        ctx.fillRect(0, 0, W, H);
+        drawCovered(ctx, frontImg, W, H);
+        // Book-spine shadow on the far-left edge
+        const spineW = Math.min(28, foldX);
+        const spineG = ctx.createLinearGradient(0, 0, spineW, 0);
+        spineG.addColorStop(0, 'rgba(0,0,0,0.18)');
+        spineG.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = spineG;
+        ctx.fillRect(0, 0, spineW, H);
+        ctx.restore();
+      }
+
+      // 5 ── Curl strip at the fold — shows the "back" of the turning page
+      const curlEnd = Math.min(foldX + CURL_W, W);
+      if (curlEnd > foldX && foldX < W) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(foldX, 0, curlEnd - foldX, H);
+        ctx.clip();
+
+        // Faint mirror-image of the front page (back of page)
+        ctx.save();
+        ctx.translate(foldX * 2, 0);
+        ctx.scale(-1, 1);
+        ctx.globalAlpha = 0.18;
+        drawCovered(ctx, frontImg, W, H);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+
+        // Lavender-white paper tone
+        const curlBg = ctx.createLinearGradient(foldX, 0, curlEnd, 0);
+        curlBg.addColorStop(0,   'rgba(235,232,255,0.94)');
+        curlBg.addColorStop(0.5, 'rgba(248,246,255,0.82)');
+        curlBg.addColorStop(1,   'rgba(255,255,255,0.45)');
+        ctx.fillStyle = curlBg;
+        ctx.fillRect(foldX, 0, curlEnd - foldX, H);
+
+        ctx.restore();
+      }
+
+      // 6 ── Fold-crease highlight
+      if (foldX > 0 && foldX < W) {
+        const eg = ctx.createLinearGradient(foldX - 8, 0, curlEnd + 2, 0);
+        eg.addColorStop(0,    'rgba(0,0,0,0.10)');
+        eg.addColorStop(0.38, 'rgba(0,0,0,0.04)');
+        eg.addColorStop(0.52, 'rgba(255,255,255,0.58)');
+        eg.addColorStop(0.78, 'rgba(200,195,230,0.32)');
+        eg.addColorStop(1,    'rgba(0,0,0,0.05)');
+        ctx.fillStyle = eg;
+        ctx.fillRect(foldX - 8, 0, (curlEnd - foldX) + 10, H);
+      }
+    }
+
+    // Mirror of renderPageTurn — fold sweeps left → right (backward navigation)
+    function renderPageTurnBack(ctx, frontImg, backImg, t, W, H) {
+      const BG       = '#f5f2ec';
+      const ease     = easeInOut(t);
+      const foldX    = W * ease;       // fold sweeps left → right
+      const CURL_W   = W * 0.08;
+      const SHADOW_W = W * 0.22;
+
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, H);
+
+      // New page (frontImg) materialises from behind
+      ctx.globalAlpha = ease;
+      drawCovered(ctx, frontImg, W, H);
+      ctx.globalAlpha = 1;
+
+      // Shadow cast to the left of the fold line
+      if (foldX > 0) {
+        const sg = ctx.createLinearGradient(foldX, 0, Math.max(foldX - SHADOW_W, 0), 0);
+        sg.addColorStop(0,    'rgba(0,0,0,0.38)');
+        sg.addColorStop(0.55, 'rgba(0,0,0,0.10)');
+        sg.addColorStop(1,    'rgba(0,0,0,0)');
+        ctx.fillStyle = sg;
+        ctx.fillRect(Math.max(0, foldX - SHADOW_W), 0, Math.min(foldX, SHADOW_W), H);
+      }
+
+      // Old page (backImg) clipped to right of fold
+      if (foldX < W) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(foldX, 0, W - foldX, H);
+        ctx.clip();
+        ctx.fillStyle = BG;
+        ctx.fillRect(0, 0, W, H);
+        drawCovered(ctx, backImg, W, H);
+        // Edge shadow on right side
+        const edgeW = Math.min(28, W - foldX);
+        const edgeG = ctx.createLinearGradient(W, 0, W - edgeW, 0);
+        edgeG.addColorStop(0, 'rgba(0,0,0,0.14)');
+        edgeG.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = edgeG;
+        ctx.fillRect(W - edgeW, 0, edgeW, H);
+        ctx.restore();
+      }
+
+      // Curl strip at fold
+      const curlStart = Math.max(foldX - CURL_W, 0);
+      if (foldX > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(curlStart, 0, foldX - curlStart, H);
+        ctx.clip();
+
+        // Faint reflection of back page (visible back-of-page)
+        ctx.save();
+        ctx.translate(foldX * 2, 0);
+        ctx.scale(-1, 1);
+        ctx.globalAlpha = 0.18;
+        drawCovered(ctx, backImg, W, H);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+
+        // Paper tone
+        const curlBg = ctx.createLinearGradient(foldX, 0, curlStart, 0);
+        curlBg.addColorStop(0,   'rgba(235,232,255,0.94)');
+        curlBg.addColorStop(0.5, 'rgba(248,246,255,0.82)');
+        curlBg.addColorStop(1,   'rgba(255,255,255,0.45)');
+        ctx.fillStyle = curlBg;
+        ctx.fillRect(curlStart, 0, foldX - curlStart, H);
+        ctx.restore();
+      }
+
+      // Fold-crease highlight
+      if (foldX > 0 && foldX < W) {
+        const eg = ctx.createLinearGradient(curlStart - 2, 0, foldX + 8, 0);
+        eg.addColorStop(0,    'rgba(0,0,0,0.05)');
+        eg.addColorStop(0.22, 'rgba(200,195,230,0.32)');
+        eg.addColorStop(0.48, 'rgba(255,255,255,0.58)');
+        eg.addColorStop(0.62, 'rgba(0,0,0,0.04)');
+        eg.addColorStop(1,    'rgba(0,0,0,0.10)');
+        ctx.fillStyle = eg;
+        ctx.fillRect(curlStart - 2, 0, (foldX - curlStart) + 10, H);
+      }
+    }
+
+    // Preload all slide images for smooth canvas animation
+    const slideImgs = slides.map(s => {
+      const img = new Image();
+      img.src = s.file;
+      return img;
+    });
+    let flipRafId = null;
+
+    async function startVideoGeneration() {
+      if (!window.MediaRecorder) {
+        alert('Video generation is not supported in this browser. Please use Chrome or Edge.');
+        return;
+      }
+
+      const vp       = document.getElementById('video-progress');
+      const vpBar    = document.getElementById('vp-bar');
+      const vpStatus = document.getElementById('vp-status');
+      const vpPct    = document.getElementById('vp-percent');
+
+      vp.classList.add('active');
+      vpBar.style.width    = '0%';
+      vpPct.textContent    = '0%';
+      vpStatus.textContent = 'Loading slides…';
+
+      // ── Canvas & timing ──
+      const CANVAS_W      = 1920;
+      const CANVAS_H      = 1080;
+      const FPS           = 30;
+      const FRAME_MS      = 1000 / FPS;
+      const SLIDE_HOLD_MS = 2500;
+      const TURN_MS       = 900;
+
+      // ── Open-book layout (mirrors the story viewer) ──
+      const PAGE_H   = 980;
+      const PAGE_W   = Math.round(PAGE_H * 9 / 16);          // 551
+      const SPINE_W  = 20;
+      const SPREAD_W = PAGE_W * 2 + SPINE_W;
+      const SPREAD_X = Math.round((CANVAS_W - SPREAD_W) / 2);
+      const SPREAD_Y = Math.round((CANVAS_H - PAGE_H) / 2);
+      const LEFT_X   = SPREAD_X;
+      const SPINE_X  = SPREAD_X + PAGE_W;
+      const RIGHT_X  = SPREAD_X + PAGE_W + SPINE_W;
+
+      const images = await Promise.all(slides.map(s => new Promise((res, rej) => {
+        const img = new Image();
+        img.onload  = () => res(img);
+        img.onerror = rej;
+        img.src = s.file;
+      })));
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = CANVAS_W;
+      canvas.height = CANVAS_H;
+      const ctx = canvas.getContext('2d');
+
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+        ? 'video/webm;codecs=vp9'
+        : 'video/webm';
+
+      const stream   = canvas.captureStream(FPS);
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 20000000 });
+      const chunks   = [];
+
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+      const donePromise = new Promise(resolve => {
+        recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+      });
+
+      recorder.start();
+
+      const frame = () => new Promise(r => setTimeout(r, FRAME_MS));
+
+      const holdFrames  = Math.round(SLIDE_HOLD_MS / FRAME_MS);
+      const turnFrames  = Math.round(TURN_MS / FRAME_MS);
+      const totalFrames = images.length * holdFrames + (images.length - 1) * turnFrames;
+      let   framesDrawn = 0;
+
+      function updateProgress(slideIdx) {
+        const pct = Math.min(99, Math.round((framesDrawn / totalFrames) * 100));
+        vpBar.style.width    = pct + '%';
+        vpPct.textContent    = pct + '%';
+        vpStatus.textContent = 'Slide ' + (slideIdx + 1) + ' of ' + images.length + ' — ' + slides[slideIdx].label;
+      }
+
+      // ── Book rendering helpers ──
+
+      function vDrawBackground() {
+        const bg = ctx.createRadialGradient(
+          CANVAS_W / 2, CANVAS_H * 0.62, 0,
+          CANVAS_W / 2, CANVAS_H * 0.62, CANVAS_W * 0.7
+        );
+        bg.addColorStop(0, '#2e1506');
+        bg.addColorStop(1, '#0a0402');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      }
+
+      function vDrawShadow() {
+        ctx.save();
+        ctx.shadowColor   = 'rgba(0,0,0,0.88)';
+        ctx.shadowBlur    = 55;
+        ctx.shadowOffsetY = 20;
+        ctx.fillStyle     = 'rgba(0,0,0,0.01)';
+        ctx.fillRect(SPREAD_X + 6, SPREAD_Y + 6, SPREAD_W - 12, PAGE_H - 6);
+        ctx.restore();
+      }
+
+      function vDrawSpine() {
+        const sg = ctx.createLinearGradient(SPINE_X, 0, SPINE_X + SPINE_W, 0);
+        sg.addColorStop(0,    '#0e0400');
+        sg.addColorStop(0.20, '#3a1800');
+        sg.addColorStop(0.44, '#7c3c08');
+        sg.addColorStop(0.50, '#a05214');
+        sg.addColorStop(0.56, '#7c3c08');
+        sg.addColorStop(0.80, '#3a1800');
+        sg.addColorStop(1,    '#0e0400');
+        ctx.fillStyle = sg;
+        ctx.fillRect(SPINE_X, SPREAD_Y, SPINE_W, PAGE_H);
+        // Gold shimmer
+        const shim = ctx.createLinearGradient(0, SPREAD_Y, 0, SPREAD_Y + PAGE_H);
+        shim.addColorStop(0,    'rgba(255,195,70,0)');
+        shim.addColorStop(0.15, 'rgba(255,195,70,0.18)');
+        shim.addColorStop(0.50, 'rgba(255,195,70,0.32)');
+        shim.addColorStop(0.85, 'rgba(255,195,70,0.18)');
+        shim.addColorStop(1,    'rgba(255,195,70,0)');
+        ctx.fillStyle = shim;
+        ctx.fillRect(SPINE_X + Math.floor(SPINE_W / 2) - 1, SPREAD_Y, 2, PAGE_H);
+      }
+
+      function vDrawPage(img, x, dimmed) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, SPREAD_Y, PAGE_W, PAGE_H);
+        ctx.clip();
+        ctx.fillStyle = '#f5f2ec';
+        ctx.fillRect(x, SPREAD_Y, PAGE_W, PAGE_H);
+        ctx.translate(x, SPREAD_Y);
+        if (dimmed) {
+          ctx.globalAlpha = 0.42;
+          ctx.filter = 'brightness(0.80) saturate(0.82)';
+        }
+        drawCovered(ctx, img, PAGE_W, PAGE_H);
+        if (dimmed) {
+          ctx.filter = 'none';
+          ctx.globalAlpha = 1;
+          // Spine-side shadow on left page
+          const ss = ctx.createLinearGradient(PAGE_W, 0, PAGE_W - PAGE_W * 0.22, 0);
+          ss.addColorStop(0, 'rgba(0,0,0,0.18)');
+          ss.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = ss;
+          ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+        }
+        ctx.restore();
+      }
+
+      function vDrawStaticSpread(img, prevImg, isFirst) {
+        vDrawBackground();
+        vDrawShadow();
+        if (!isFirst && prevImg) vDrawPage(prevImg, LEFT_X, true);
+        vDrawSpine();
+        vDrawPage(img, RIGHT_X, false);
+      }
+
+      function vDrawTurnSpread(fromImg, toImg, t, prevImg, isFirst) {
+        vDrawBackground();
+        vDrawShadow();
+        if (!isFirst && prevImg) vDrawPage(prevImg, LEFT_X, true);
+        vDrawSpine();
+        // Page-turn animation clipped to right page bounds
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(RIGHT_X, SPREAD_Y, PAGE_W, PAGE_H);
+        ctx.clip();
+        ctx.translate(RIGHT_X, SPREAD_Y);
+        renderPageTurn(ctx, fromImg, toImg, t, PAGE_W, PAGE_H);
+        ctx.restore();
+      }
+
+      // ── Record ──
+
+      for (let i = 0; i < images.length; i++) {
+        const img     = images[i];
+        const prevImg = images[i - 1] || null;
+        const nextImg = images[i + 1] || null;
+        const isFirst = i === 0;
+
+        // Hold
+        for (let f = 0; f < holdFrames; f++) {
+          vDrawStaticSpread(img, prevImg, isFirst);
+          framesDrawn++;
+          updateProgress(i);
+          await frame();
+        }
+
+        // Page-turn transition
+        if (nextImg) {
+          for (let f = 0; f < turnFrames; f++) {
+            vDrawTurnSpread(img, nextImg, f / (turnFrames - 1), prevImg, isFirst);
+            framesDrawn++;
+            updateProgress(i);
+            await frame();
+          }
+        }
+      }
+
+      recorder.stop();
+
+      vpStatus.textContent = 'Finalising…';
+      vpBar.style.width    = '99%';
+
+      const blob = await donePromise;
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'Recognition_Journey.webm';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      vpBar.style.width    = '100%';
+      vpPct.textContent    = '100%';
+      vpStatus.textContent = '✓ Video downloaded!';
+      setTimeout(() => vp.classList.remove('active'), 2000);
+    }
+  </script>
+</body>
+</html>
