@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Recognition Journey — V4</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #07060f; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; height: 100dvh; }
+
+    /* ═══════════════════════════════════════
+       DISCOVERY SCREEN
+    ═══════════════════════════════════════ */
+    #discovery-screen {
+      position: fixed; inset: 0;
+      background: #f0eeff;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+      transition: opacity 0.5s ease;
+    }
+    #discovery-screen.hiding { opacity: 0; pointer-events: none; }
+    #discovery-screen.hidden { display: none; }
+
+    #disc-frame {
+      width: min(92vw, calc(88vh * 1.65));
+      display: flex; flex-direction: column;
+      border-radius: 10px; overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.22), 0 4px 16px rgba(0,0,0,0.12);
+    }
+    #disc-chrome {
+      background: #e8e4f0; padding: 10px 14px;
+      display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid rgba(0,0,0,0.08); flex-shrink: 0;
+    }
+    #disc-dots { display: flex; gap: 6px; }
+    #disc-dots span { width: 11px; height: 11px; border-radius: 50%; display: block; }
+    #disc-dots span:nth-child(1) { background: #ff5f56; }
+    #disc-dots span:nth-child(2) { background: #ffbd2e; }
+    #disc-dots span:nth-child(3) { background: #27c93f; }
+    #disc-url {
+      background: rgba(255,255,255,0.6); border-radius: 5px;
+      padding: 4px 12px; font-size: 11px; color: #666;
+      flex: 1; text-align: center;
+    }
+
+    #disc-viewport { position: relative; background: #fff; line-height: 0; }
+    #disc-img { width: 100%; display: block; }
+
+    /* Entire "Your 2025 Recognition Journey is Ready!" card is clickable */
+    #disc-card-overlay {
+      position: absolute;
+      /* Covers the full banner card in Discovery Point.png */
+      left: 29.5%; top: 33%;
+      width: 47%; height: 36%;
+      cursor: pointer;
+      border-radius: 10px;
+      border: 2px solid rgba(91,61,245,0.0);
+      transition: border-color 0.2s, background 0.2s;
+      animation: card-pulse 2.2s ease-in-out infinite;
+    }
+    #disc-card-overlay:hover {
+      background: rgba(91,61,245,0.06);
+      border-color: rgba(91,61,245,0.55);
+      animation: none;
+    }
+    @keyframes card-pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(91,61,245,0.3); }
+      50%      { box-shadow: 0 0 0 10px rgba(91,61,245,0); }
+    }
+
+    /* ═══════════════════════════════════════
+       STORY VIEWER
+    ═══════════════════════════════════════ */
+    #story-viewer {
+      position: fixed; inset: 0;
+      background: #0a0812;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.45s ease;
+    }
+    #story-viewer.visible { opacity: 1; pointer-events: all; }
+
+    /* Story bar */
+    #story-bar {
+      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      width: min(96vw, 960px);
+      display: flex; gap: 7px; z-index: 20;
+    }
+    .story-seg {
+      flex: 1; height: 3px; border-radius: 2px;
+      background: rgba(255,255,255,0.25); overflow: hidden; position: relative;
+    }
+    .story-seg .seg-fill {
+      position: absolute; top: 0; left: 0; bottom: 0;
+      background: #fff; width: 0%; border-radius: 2px;
+    }
+    .story-seg.done .seg-fill { width: 100%; }
+
+    /* Close button */
+    #btn-close {
+      position: absolute; top: 10px; right: 16px;
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 50%; width: 36px; height: 36px;
+      color: rgba(255,255,255,0.75); font-size: 15px;
+      cursor: pointer; display: none; align-items: center; justify-content: center;
+      transition: background 0.2s; z-index: 20;
+    }
+    #btn-close:hover { background: rgba(255,255,255,0.2); color: #fff; }
+    #story-viewer.visible #btn-close { display: flex; }
+
+    /* Main image — fills as much screen as possible */
+    #slide-wrap {
+      width: 100vw;
+      height: 100dvh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 44px 0 52px; /* top: story bar; bottom: counter */
+    }
+    #slide-img {
+      max-width: 96vw;
+      max-height: 100%;
+      width: auto; height: auto;
+      display: block;
+      border-radius: 14px;
+      box-shadow: 0 12px 56px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.4);
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: scale(1); } }
+    #slide-img.slide-anim { animation: fadeIn 0.3s ease forwards; }
+    @media (prefers-reduced-motion: reduce) { #slide-img.slide-anim { animation: none; } }
+
+    /* Full-screen tap zones (behind image but above background) */
+    #tap-prev {
+      position: absolute; top: 0; left: 0; bottom: 0; width: 38%;
+      cursor: pointer; z-index: 10;
+    }
+    #tap-next {
+      position: absolute; top: 0; right: 0; bottom: 0; width: 62%;
+      cursor: pointer; z-index: 10;
+    }
+
+    /* Nav arrow buttons */
+    .nav-btn {
+      position: fixed; top: 50%; transform: translateY(-50%);
+      background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 50%; width: 42px; height: 42px;
+      color: rgba(255,255,255,0.8); font-size: 15px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s; z-index: 30;
+    }
+    .nav-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+    .nav-btn:disabled { opacity: 0.12; cursor: default; pointer-events: none; }
+    #btn-prev { left: 12px; } #btn-next { right: 12px; }
+
+    /* Slide counter + save CTA */
+    #story-footer {
+      position: absolute; bottom: 14px;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      z-index: 20;
+    }
+    #slide-counter { color: rgba(255,255,255,0.28); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; }
+    #download-cta { display: none; flex-direction: column; align-items: center; gap: 5px; }
+    #download-cta.visible { display: flex; }
+    #btn-save {
+      background: #5B3DF5; color: #fff; border: none; border-radius: 24px;
+      padding: 9px 24px; font-size: 13px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; gap: 7px;
+      transition: background 0.2s, transform 0.15s;
+    }
+    #btn-save:hover { background: #4a2fe0; transform: translateY(-1px); }
+    #cta-hint { color: rgba(255,255,255,0.28); font-size: 11px; }
+
+    /* ═══════════════════════════════════════
+       DOWNLOAD PANEL
+    ═══════════════════════════════════════ */
+    #download-panel { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.96); z-index: 300; overflow-y: auto; }
+    #download-panel.active { display: block; }
+    #panel-inner { max-width: 780px; margin: 0 auto; padding: 36px 24px 40px; display: flex; flex-direction: column; align-items: center; }
+    #panel-header { text-align: center; margin-bottom: 28px; width: 100%; }
+    #panel-header h2 { color: #fff; font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    #panel-header p  { color: rgba(255,255,255,0.42); font-size: 13px; }
+    #slides-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 20px; width: 100%; margin-bottom: 32px; }
+    .slide-card { background: rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+    .slide-thumb-wrap { width: 100%; background: #f7f6ff; }
+    .slide-thumb-wrap img { width: 100%; height: auto; display: block; }
+    .slide-card-footer { padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .slide-label { color: rgba(255,255,255,0.62); font-size: 12px; font-weight: 500; }
+    .btn-dl-single { background: rgba(91,61,245,0.85); border: none; border-radius: 6px; color: #fff; font-size: 11px; padding: 5px 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: background 0.2s; }
+    .btn-dl-single:hover { background: #5B3DF5; }
+    .btn-dl-single.downloading { opacity: 0.6; cursor: default; }
+    #panel-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    #btn-download-all { background: #5B3DF5; color: #fff; border: none; border-radius: 24px; padding: 11px 30px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.2s; }
+    #btn-download-all:hover { background: #4a2fe0; }
+    #btn-download-all:disabled { opacity: 0.5; cursor: default; }
+    #btn-download-video { background: rgba(255,255,255,0.08); color: #fff; border: 1.5px solid rgba(255,255,255,0.2); border-radius: 24px; padding: 11px 24px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.2s, border-color 0.2s; }
+    #btn-download-video:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.4); }
+    #btn-panel-close { background: rgba(255,255,255,0.08); color: #fff; border: none; border-radius: 24px; padding: 11px 24px; font-size: 14px; cursor: pointer; transition: background 0.2s; }
+    #btn-panel-close:hover { background: rgba(255,255,255,0.16); }
+
+    /* ═══════════════════════════════════════
+       VIDEO PROGRESS OVERLAY
+    ═══════════════════════════════════════ */
+    #video-progress { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.97); z-index: 400; align-items: center; justify-content: center; }
+    #video-progress.active { display: flex; }
+    #vp-box { background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 40px 48px; width: 420px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+    #vp-icon { width: 56px; height: 56px; background: rgba(91,61,245,0.15); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    #vp-title { color: #fff; font-size: 18px; font-weight: 700; text-align: center; }
+    #vp-status { color: rgba(255,255,255,0.5); font-size: 13px; text-align: center; min-height: 20px; }
+    #vp-bar-wrap { width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+    #vp-bar { height: 100%; width: 0%; background: linear-gradient(90deg,#5B3DF5,#8B6FF5); border-radius: 3px; transition: width 0.3s ease; }
+    #vp-percent { color: rgba(255,255,255,0.35); font-size: 12px; }
+    #vp-note { color: rgba(255,255,255,0.25); font-size: 11px; text-align: center; line-height: 1.55; }
+    #vp-cancel { margin-top: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; color: rgba(255,255,255,0.45); font-size: 12px; padding: 7px 20px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════
+     DISCOVERY SCREEN
+═══════════════════════════════════════ -->
+<div id="discovery-screen">
+  <div id="disc-frame">
+    <div id="disc-chrome">
+      <div id="disc-dots"><span></span><span></span><span></span></div>
+      <div id="disc-url">vantage.io/social/feed</div>
+    </div>
+    <div id="disc-viewport">
+      <img src="Discovery Point.png" id="disc-img" alt="Vantage Circle Feed — Your 2025 Recognition Journey is Ready">
+      <!-- Entire banner card is clickable -->
+      <div id="disc-card-overlay" role="button" tabindex="0" aria-label="Open your Recognition Journey"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     STORY VIEWER
+═══════════════════════════════════════ -->
+<div id="story-viewer">
+  <div id="story-bar"><!-- built by JS --></div>
+  <button id="btn-close" aria-label="Back to feed">&#10005;</button>
+
+  <div id="slide-wrap">
+    <img id="slide-img" src="" alt="">
+    <!-- tap zones sit over the image area -->
+    <div id="tap-prev"></div>
+    <div id="tap-next"></div>
+  </div>
+
+  <div id="story-footer">
+    <div id="slide-counter"></div>
+    <div id="download-cta">
+      <button id="btn-save">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Save for Social Sharing
+      </button>
+      <span id="cta-hint">Download slides or export as video</span>
+    </div>
+  </div>
+</div>
+
+<button class="nav-btn" id="btn-prev" aria-label="Previous slide">&#8592;</button>
+<button class="nav-btn" id="btn-next" aria-label="Next slide">&#8594;</button>
+
+<!-- Download Panel -->
+<div id="download-panel" role="dialog" aria-modal="true" aria-label="Save for Social Sharing">
+  <div id="panel-inner">
+    <div id="panel-header">
+      <h2>Save for Social Sharing</h2>
+      <p>Download slides as PNG or export the full journey as an MP4 video</p>
+    </div>
+    <div id="slides-grid"></div>
+    <div id="panel-actions">
+      <button id="btn-download-all">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download All PNGs
+      </button>
+      <button id="btn-download-video">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+        Download as MP4
+      </button>
+      <button id="btn-panel-close">Back to Journey</button>
+    </div>
+  </div>
+</div>
+
+<!-- Video Progress -->
+<div id="video-progress">
+  <div id="vp-box">
+    <div id="vp-icon">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#5B3DF5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+      </svg>
+    </div>
+    <div id="vp-title">Generating Your Video</div>
+    <div id="vp-status">Starting…</div>
+    <div id="vp-bar-wrap"><div id="vp-bar"></div></div>
+    <div id="vp-percent">0%</div>
+    <div id="vp-note">Keep this tab open while rendering.<br>This may take 1–2 minutes depending on your device.</div>
+    <button id="vp-cancel">Cancel</button>
+  </div>
+</div>
+
+<script>
+  const SLIDES       = ['Page 1.png', 'Page 2.png'];
+  const SLIDE_LABELS = ['Your Recognition Story', 'How You Built Culture'];
+  const TOTAL        = SLIDES.length;
+  const AUTO_DELAY   = 8000;
+  let current = 0;
+
+  // ── Discovery → Story ──
+  function openStory() {
+    const disc   = document.getElementById('discovery-screen');
+    const viewer = document.getElementById('story-viewer');
+    disc.classList.add('hiding');
+    setTimeout(() => disc.classList.add('hidden'), 500);
+    viewer.classList.add('visible');
+    goTo(0);
+  }
+  function backToFeed() {
+    stopTimer();
+    const disc   = document.getElementById('discovery-screen');
+    const viewer = document.getElementById('story-viewer');
+    disc.classList.remove('hidden');
+    requestAnimationFrame(() => disc.classList.remove('hiding'));
+    viewer.classList.remove('visible');
+  }
+
+  const overlay = document.getElementById('disc-card-overlay');
+  overlay.addEventListener('click', openStory);
+  overlay.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') openStory(); });
+  document.getElementById('btn-close').addEventListener('click', backToFeed);
+
+  // ── Slide rendering ──
+  function putSlide(idx, animate) {
+    const img = document.getElementById('slide-img');
+    img.classList.remove('slide-anim');
+    void img.offsetWidth; // reflow to restart animation
+    img.src = idx >= 0 && idx < TOTAL ? SLIDES[idx] : '';
+    img.alt = idx >= 0 && idx < TOTAL ? SLIDE_LABELS[idx] : '';
+    if (animate) img.classList.add('slide-anim');
+  }
+
+  // ── Story bar ──
+  let _timerRaf = null, _timerStart = null;
+  const storyBar  = document.getElementById('story-bar');
+  const storySegs = [];
+
+  for (let i = 0; i < TOTAL; i++) {
+    const seg  = document.createElement('div');  seg.className = 'story-seg';
+    const fill = document.createElement('div');  fill.className = 'seg-fill';
+    seg.appendChild(fill); storyBar.appendChild(seg);
+    storySegs.push({ seg, fill });
+  }
+
+  function updateStoryBar() {
+    storySegs.forEach(({ seg, fill }, i) => {
+      seg.classList.toggle('done', i < current);
+      if (i < current)      fill.style.width = '100%';
+      else if (i > current) fill.style.width = '0%';
+    });
+  }
+
+  function startTimer() {
+    stopTimer();
+    _timerStart = performance.now();
+    const { fill } = storySegs[current];
+    fill.style.width = '0%';
+    function tick() {
+      const pct = Math.min((performance.now() - _timerStart) / AUTO_DELAY, 1);
+      fill.style.width = (pct * 100).toFixed(1) + '%';
+      if (pct < 1) {
+        _timerRaf = requestAnimationFrame(tick);
+      } else if (current < TOTAL - 1) {
+        goTo(current + 1);
+      }
+    }
+    _timerRaf = requestAnimationFrame(tick);
+  }
+
+  function stopTimer() {
+    if (_timerRaf) { cancelAnimationFrame(_timerRaf); _timerRaf = null; }
+  }
+
+  // ── Navigation ──
+  function goTo(idx) {
+    if (idx < 0 || idx >= TOTAL) return;
+    stopTimer();
+    current = idx;
+    putSlide(idx, true);
+    document.getElementById('btn-prev').disabled = idx === 0;
+    document.getElementById('btn-next').disabled = idx === TOTAL - 1;
+    document.getElementById('slide-counter').textContent = `${idx + 1} / ${TOTAL}`;
+    document.getElementById('download-cta').classList.toggle('visible', idx === TOTAL - 1);
+    updateStoryBar();
+    startTimer();
+  }
+
+  document.getElementById('btn-prev').addEventListener('click', () => goTo(current - 1));
+  document.getElementById('btn-next').addEventListener('click', () => goTo(current + 1));
+  document.getElementById('tap-prev').addEventListener('click', () => goTo(current - 1));
+  document.getElementById('tap-next').addEventListener('click', () => goTo(current + 1));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goTo(current + 1);
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   goTo(current - 1);
+    if (e.key === 'Escape') {
+      if (document.getElementById('download-panel').classList.contains('active')) closePanel();
+      else backToFeed();
+    }
+  });
+
+  // ── Download panel ──
+  document.getElementById('btn-save').addEventListener('click', openPanel);
+  document.getElementById('btn-panel-close').addEventListener('click', closePanel);
+
+  function openPanel() {
+    stopTimer();
+    buildGrid();
+    document.getElementById('download-panel').classList.add('active');
+  }
+  function closePanel() {
+    document.getElementById('download-panel').classList.remove('active');
+    startTimer();
+  }
+
+  function buildGrid() {
+    const grid = document.getElementById('slides-grid');
+    grid.innerHTML = '';
+    SLIDES.forEach((src, i) => {
+      const card   = document.createElement('div');  card.className = 'slide-card';
+      const wrap   = document.createElement('div');  wrap.className = 'slide-thumb-wrap';
+      const img    = document.createElement('img');  img.src = src; img.alt = SLIDE_LABELS[i];
+      const footer = document.createElement('div');  footer.className = 'slide-card-footer';
+      const lbl    = document.createElement('span'); lbl.className = 'slide-label'; lbl.textContent = SLIDE_LABELS[i];
+      const btn    = document.createElement('button'); btn.className = 'btn-dl-single'; btn.textContent = '↓ Save PNG';
+      btn.addEventListener('click', e => { e.stopPropagation(); downloadSlide(i, btn); });
+      wrap.appendChild(img);
+      footer.appendChild(lbl); footer.appendChild(btn);
+      card.appendChild(wrap); card.appendChild(footer);
+      grid.appendChild(card);
+    });
+  }
+
+  async function downloadSlide(idx, btn) {
+    if (btn) { btn.textContent = '…'; btn.classList.add('downloading'); }
+    try {
+      const res  = await fetch(SLIDES[idx]);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = 'Recognition_Journey_V4_' + SLIDE_LABELS[idx].replace(/\s+/g, '_') + '.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (btn) { btn.textContent = '✓ Saved'; btn.classList.remove('downloading'); }
+    } catch(err) {
+      console.error(err);
+      if (btn) { btn.textContent = '↓ Save PNG'; btn.classList.remove('downloading'); }
+    }
+  }
+
+  document.getElementById('btn-download-all').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-download-all');
+    btn.disabled = true; btn.textContent = 'Downloading…';
+    const singles = document.querySelectorAll('.btn-dl-single');
+    for (let i = 0; i < TOTAL; i++) {
+      await downloadSlide(i, singles[i] || null);
+      await new Promise(r => setTimeout(r, 400));
+    }
+    btn.textContent = '✓ All Saved!';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download All PNGs';
+    }, 3000);
+  });
+
+  // ── MP4 Export (full-screen images, cross-fade) ──
+  document.getElementById('btn-download-video').addEventListener('click', startVideoGeneration);
+  let _cancelled = false;
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src;
+    });
+  }
+
+  async function startVideoGeneration() {
+    if (typeof VideoEncoder === 'undefined') {
+      alert('MP4 export requires Chrome 94+ or Edge 94+. Please update your browser.'); return;
+    }
+    const vp = document.getElementById('video-progress');
+    const vpBar = document.getElementById('vp-bar');
+    const vpStatus = document.getElementById('vp-status');
+    const vpPct = document.getElementById('vp-percent');
+    _cancelled = false;
+    vp.classList.add('active');
+    vpBar.style.width = '0%'; vpPct.textContent = '0%'; vpStatus.textContent = 'Loading encoder…';
+    document.getElementById('vp-cancel').onclick = () => { _cancelled = true; vp.classList.remove('active'); };
+
+    let Muxer, ArrayBufferTarget;
+    try {
+      const mod = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs');
+      Muxer = mod.Muxer; ArrayBufferTarget = mod.ArrayBufferTarget;
+    } catch(e) { vp.classList.remove('active'); alert('Could not load video encoder. Check your internet connection.'); return; }
+    if (_cancelled) return;
+
+    const imgs = [];
+    for (let i = 0; i < TOTAL; i++) {
+      if (_cancelled) return;
+      vpStatus.textContent = `Loading image ${i+1} of ${TOTAL}…`;
+      vpBar.style.width = Math.round(i/TOTAL*15) + '%'; vpPct.textContent = Math.round(i/TOTAL*15) + '%';
+      try { imgs.push(await loadImage(SLIDES[i])); }
+      catch(e) { vp.classList.remove('active'); alert(`Could not load slide ${i+1} image.`); return; }
+    }
+
+    const CW = 1920, CH = 1080, FPS = 30;
+    const HOLD = 3000, FADE = 700;
+    const hF = Math.round(HOLD*FPS/1000), fF = Math.round(FADE*FPS/1000);
+    const totF = TOTAL*hF + (TOTAL-1)*fF;
+
+    const target = new ArrayBufferTarget();
+    const muxer  = new Muxer({ target, video:{ codec:'avc', width:CW, height:CH }, fastStart:'in-memory' });
+    let _encErr  = null;
+    const enc    = new VideoEncoder({
+      output: (c,m) => muxer.addVideoChunk(c,m),
+      error:  e => { _encErr = e; }
+    });
+    enc.configure({ codec:'avc1.4d0028', width:CW, height:CH, bitrate:8_000_000, framerate:FPS, avc:{format:'avc'}, latencyMode:'quality' });
+
+    const oc  = new OffscreenCanvas(CW, CH);
+    const ctx = oc.getContext('2d');
+    let drawn = 0, ts = 0;
+    const FU = Math.round(1_000_000/FPS);
+
+    async function enc1(kf) {
+      const vf = new VideoFrame(oc, { timestamp:ts, duration:FU });
+      enc.encode(vf, { keyFrame:kf }); vf.close();
+      ts += FU; drawn++;
+      if (enc.encodeQueueSize > 8) await new Promise(r => setTimeout(r,16));
+      else if (drawn%10===0)       await new Promise(r => setTimeout(r,0));
+    }
+
+    function drawBg() {
+      ctx.fillStyle = '#0a0812'; ctx.fillRect(0,0,CW,CH);
+    }
+
+    function drawImgCentered(img, alpha) {
+      const sw = img.naturalWidth, sh = img.naturalHeight;
+      const sc = Math.min(CW/sw, CH/sh);
+      const dx = (CW - sw*sc)/2, dy = (CH - sh*sc)/2;
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(img, dx, dy, sw*sc, sh*sc);
+      ctx.globalAlpha = 1;
+    }
+
+    function eio(t) { return t<.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+
+    for (let i = 0; i < TOTAL; i++) {
+      if (_cancelled||_encErr) break;
+      // Hold
+      for (let f = 0; f < hF; f++) {
+        if (_cancelled||_encErr) break;
+        drawBg(); drawImgCentered(imgs[i], 1);
+        await enc1(f === 0);
+        const p = 15 + Math.round(drawn/totF*80);
+        vpBar.style.width=p+'%'; vpPct.textContent=p+'%';
+        vpStatus.textContent=`Encoding slide ${i+1} of ${TOTAL}…`;
+      }
+      // Cross-fade to next
+      if (i < TOTAL-1 && !_cancelled && !_encErr) {
+        for (let f = 0; f < fF; f++) {
+          if (_cancelled||_encErr) break;
+          const t = eio(f/(fF-1));
+          drawBg();
+          drawImgCentered(imgs[i],   1-t);
+          drawImgCentered(imgs[i+1], t);
+          await enc1(false);
+        }
+      }
+    }
+
+    if (_cancelled) { vp.classList.remove('active'); return; }
+    if (_encErr) { vp.classList.remove('active'); alert('Encoding error: '+(_encErr.message||_encErr)); return; }
+    vpStatus.textContent='Finalising MP4…';
+    try { await enc.flush(); muxer.finalize(); }
+    catch(e) { vp.classList.remove('active'); alert('Could not finalise video. Please try again.'); return; }
+
+    const blob = new Blob([target.buffer], {type:'video/mp4'});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a'); a.href=url; a.download='Recognition_Journey_V4.mp4';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    vpBar.style.width='100%'; vpPct.textContent='100%'; vpStatus.textContent='✓ MP4 downloaded!';
+    setTimeout(()=>vp.classList.remove('active'),2500);
+  }
+</script>
+</body>
+</html>
