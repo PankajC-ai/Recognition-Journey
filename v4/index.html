@@ -138,7 +138,7 @@
       cursor: pointer; z-index: 10;
     }
 
-    /* Nav arrow buttons */
+    /* Nav arrow buttons — hidden until story viewer is open */
     .nav-btn {
       position: fixed; top: 50%; transform: translateY(-50%);
       background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.18);
@@ -146,7 +146,10 @@
       color: rgba(255,255,255,0.8); font-size: 15px;
       cursor: pointer; display: flex; align-items: center; justify-content: center;
       transition: all 0.2s; z-index: 30;
+      opacity: 0; pointer-events: none;
     }
+    #story-viewer.visible ~ #btn-prev,
+    #story-viewer.visible ~ #btn-next { opacity: 1; pointer-events: all; }
     .nav-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
     .nav-btn:disabled { opacity: 0.12; cursor: default; pointer-events: none; }
     #btn-prev { left: 12px; } #btn-next { right: 12px; }
@@ -201,7 +204,7 @@
     ═══════════════════════════════════════ */
     #video-progress { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.97); z-index: 400; align-items: center; justify-content: center; }
     #video-progress.active { display: flex; }
-    #vp-box { background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 40px 48px; width: 420px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+    #vp-box { background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 40px 48px; width: min(420px, 92vw); display: flex; flex-direction: column; align-items: center; gap: 18px; }
     #vp-icon { width: 56px; height: 56px; background: rgba(91,61,245,0.15); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
     #vp-title { color: #fff; font-size: 18px; font-weight: 700; text-align: center; }
     #vp-status { color: rgba(255,255,255,0.5); font-size: 13px; text-align: center; min-height: 20px; }
@@ -239,7 +242,7 @@
   <button id="btn-close" aria-label="Back to feed">&#10005;</button>
 
   <div id="slide-wrap">
-    <img id="slide-img" src="" alt="">
+    <img id="slide-img" alt="">
     <!-- tap zones sit over the image area -->
     <div id="tap-prev"></div>
     <div id="tap-next"></div>
@@ -311,18 +314,21 @@
   const TOTAL        = SLIDES.length;
   const AUTO_DELAY   = 8000;
   let current = 0;
+  let _hideTimeout = null; // QA-001: track timeout so it can be cancelled
 
   // ── Discovery → Story ──
   function openStory() {
     const disc   = document.getElementById('discovery-screen');
     const viewer = document.getElementById('story-viewer');
     disc.classList.add('hiding');
-    setTimeout(() => disc.classList.add('hidden'), 500);
+    _hideTimeout = setTimeout(() => { disc.classList.add('hidden'); _hideTimeout = null; }, 500);
     viewer.classList.add('visible');
     goTo(0);
   }
   function backToFeed() {
     stopTimer();
+    // QA-001: cancel the hide timeout if the user exits before it fires
+    if (_hideTimeout) { clearTimeout(_hideTimeout); _hideTimeout = null; }
     const disc   = document.getElementById('discovery-screen');
     const viewer = document.getElementById('story-viewer');
     disc.classList.remove('hidden');
@@ -405,6 +411,8 @@
   document.getElementById('tap-prev').addEventListener('click', () => goTo(current - 1));
   document.getElementById('tap-next').addEventListener('click', () => goTo(current + 1));
   document.addEventListener('keydown', e => {
+    // QA-003: only handle keys when story viewer is active
+    if (!document.getElementById('story-viewer').classList.contains('visible')) return;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goTo(current + 1);
     if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   goTo(current - 1);
     if (e.key === 'Escape') {
@@ -424,7 +432,8 @@
   }
   function closePanel() {
     document.getElementById('download-panel').classList.remove('active');
-    startTimer();
+    // QA-004: don't restart timer on last slide — story is already complete
+    if (current < TOTAL - 1) startTimer();
   }
 
   function buildGrid() {
